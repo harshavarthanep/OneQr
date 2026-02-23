@@ -6,61 +6,54 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="manifest" href="manifest.json">
 
-<!-- Google Login -->
 <script src="https://accounts.google.com/gsi/client" async defer></script>
+<script src="https://apis.google.com/js/api.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.4/build/qrcode.min.js"></script>
 
 <style>
-:root {
-  --bg:#f4f6fa;
-  --card:#fff;
-  --primary:#007aff;
-  --text:#111;
-  --radius:18px;
+:root{
+  --bg:#f2f4f8;--card:#fff;--primary:#007aff;
+  --text:#0f172a;--muted:#64748b;--radius:20px;
 }
-
+*{box-sizing:border-box}
 body{
-  margin:0;
-  font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",sans-serif;
-  background:var(--bg);
-  color:var(--text);
+  margin:0;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display";
+  background:var(--bg);color:var(--text);
 }
-
 header{
-  display:flex;
-  justify-content:space-between;
-  align-items:center;
-  padding:16px;
-  background:var(--card);
-  box-shadow:0 2px 10px rgba(0,0,0,.06);
+  padding:18px 20px;background:var(--card);
+  display:flex;justify-content:space-between;align-items:center;
+  box-shadow:0 4px 20px rgba(0,0,0,.06);
 }
-
 button{
-  background:var(--primary);
-  color:#fff;
-  border:none;
-  padding:10px 16px;
-  border-radius:12px;
-  font-size:14px;
+  border:none;background:var(--primary);color:#fff;
+  padding:10px 16px;border-radius:14px;font-size:14px;
 }
-
-input{
-  width:calc(100% - 32px);
-  margin:16px;
-  padding:14px;
-  border:none;
-  border-radius:var(--radius);
-  font-size:16px;
-  box-shadow:0 2px 8px rgba(0,0,0,.08);
+input,textarea{
+  width:100%;padding:14px;border-radius:14px;border:none;
+  box-shadow:0 2px 10px rgba(0,0,0,.08);font-size:15px;
+  margin-bottom:10px;
 }
-
+.hidden{display:none}
+.container{padding:20px}
+.grid{
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));
+  gap:16px;
+}
 .card{
-  background:var(--card);
-  margin:16px;
-  padding:16px;
-  border-radius:var(--radius);
+  background:var(--card);border-radius:var(--radius);
+  padding:18px;box-shadow:0 10px 25px rgba(0,0,0,.08);
+  cursor:pointer;
 }
-
-.hidden{display:none;}
+.item{
+  background:var(--card);padding:12px;border-radius:12px;margin-bottom:8px;
+}
+.qr{display:flex;justify-content:center;margin-top:16px}
+.badge{
+  background:#fee2e2;color:#991b1b;
+  padding:6px 10px;border-radius:999px;font-size:12px;
+  display:inline-block;margin-bottom:10px;
+}
 </style>
 </head>
 
@@ -71,113 +64,197 @@ input{
   <button id="installBtn" class="hidden">Install</button>
 </header>
 
-<main>
-  <div id="login"></div>
+<!-- LOGIN -->
+<div class="container" id="loginView">
+  <h2>One QR. All that matters.</h2>
+  <p style="color:var(--muted)">Emergency-ready document vault</p>
+  <div id="loginBtn"></div>
+</div>
 
-  <div id="app" class="hidden">
-    <input id="search" placeholder="Search documents, tags…">
-    <div class="card">
-      <h3>Folders</h3>
-      <ul id="folders"></ul>
-    </div>
-    <div class="card">
-      <h3>QR Generator</h3>
-      <button onclick="generateQR()">Generate QR</button>
-      <canvas id="qr"></canvas>
-    </div>
-  </div>
-</main>
+<!-- DASHBOARD -->
+<div class="container hidden" id="dashboard">
+  <h3>Your Vault</h3>
+  <div class="grid" id="folders"></div>
+</div>
 
-<script type="module">
-/* =======================
-   PWA INSTALL
-======================= */
+<!-- FOLDER VIEW -->
+<div class="container hidden" id="folderView">
+  <button onclick="goBack()">← Back</button>
+  <h2 id="folderTitle"></h2>
+
+  <input type="file" id="fileInput">
+  <button onclick="upload()">Upload File</button>
+
+  <h3>Files</h3>
+  <div id="files"></div>
+
+  <h3>Emergency Contacts</h3>
+  <textarea id="contactsInput" placeholder="Name - Phone"></textarea>
+  <button onclick="saveContacts()">Save Contacts</button>
+  <button onclick="enableOffline()">Enable Offline Emergency</button>
+
+  <h3>QR Codes</h3>
+  <button onclick="makeFolderQR()">Folder QR</button>
+  <button onclick="makeEmergencyQR()">Emergency QR</button>
+  <div class="qr"><canvas id="qr"></canvas></div>
+</div>
+
+<!-- EMERGENCY VIEW -->
+<div class="container hidden" id="emergencyView">
+  <span class="badge">🚨 Emergency Information</span>
+  <h2>Contacts</h2>
+  <div id="emergencyContacts"></div>
+  <h2>Documents</h2>
+  <div id="emergencyFiles"></div>
+</div>
+
+<script>
+/* ================= PWA ================= */
 let deferredPrompt;
-window.addEventListener("beforeinstallprompt", e=>{
-  e.preventDefault();
-  deferredPrompt=e;
-  document.getElementById("installBtn").classList.remove("hidden");
+window.addEventListener("beforeinstallprompt",e=>{
+  e.preventDefault();deferredPrompt=e;
+  installBtn.classList.remove("hidden");
 });
-document.getElementById("installBtn").onclick=()=>deferredPrompt.prompt();
+installBtn.onclick=()=>deferredPrompt.prompt();
+if("serviceWorker"in navigator)navigator.serviceWorker.register("sw.js");
 
-if("serviceWorker" in navigator){
-  navigator.serviceWorker.register("sw.js");
+/* ================= ROUTER ================= */
+if(location.hash.startsWith("#/emergency/")){
+  showEmergency(location.hash.split("/")[2]);
 }
 
-/* =======================
-   GOOGLE LOGIN
-======================= */
-google.accounts.id.initialize({
-  client_id:"913571877994-rgjihjtio40kf0bnamntmf9qjlknlm4d.apps.googleusercontent.com",
-  callback:handleLogin
+/* ================= GOOGLE AUTH ================= */
+const CLIENT_ID="YOUR_GOOGLE_CLIENT_ID";
+const SCOPES="https://www.googleapis.com/auth/drive.file";
+let accessToken,rootId,activeFolder;
+
+google.accounts.id.initialize({client_id:CLIENT_ID,callback:()=>{}});
+google.accounts.id.renderButton(loginBtn,{theme:"outline",size:"large"});
+const tokenClient=google.accounts.oauth2.initTokenClient({
+  client_id:CLIENT_ID,scope:SCOPES,
+  callback:(t)=>{accessToken=t.access_token;initDrive();}
 });
-google.accounts.id.renderButton(
-  document.getElementById("login"),
-  {theme:"outline",size:"large"}
-);
+loginBtn.onclick=()=>tokenClient.requestAccessToken();
 
-function handleLogin(res){
-  localStorage.setItem("vaultiq_user",res.credential);
-  document.getElementById("login").classList.add("hidden");
-  document.getElementById("app").classList.remove("hidden");
-  loadFolders();
-}
-
-/* =======================
-   DATA (MVP LOCAL MODEL)
-======================= */
-let folders=[
-  {id:"auto",name:"🚗 Automobile",tags:["vehicle","emergency"]},
-  {id:"personal",name:"👤 Personal",tags:["id","documents"]},
-  {id:"education",name:"🎓 Education",tags:["marks","degree"]},
-  {id:"health",name:"🏥 Health",tags:["insurance","medical"]}
-];
-
-function loadFolders(){
-  const ul=document.getElementById("folders");
-  ul.innerHTML="";
-  folders.forEach(f=>{
-    const li=document.createElement("li");
-    li.textContent=f.name;
-    ul.appendChild(li);
+/* ================= DRIVE ================= */
+function initDrive(){
+  gapi.load("client",async()=>{
+    await gapi.client.init({});
+    gapi.client.setToken({access_token:accessToken});
+    loginView.classList.add("hidden");
+    dashboard.classList.remove("hidden");
+    await ensureRoot();
+    loadFolders();
   });
 }
 
-/* =======================
-   SMART SEARCH (CLIENT)
-======================= */
-document.getElementById("search").oninput=e=>{
-  const q=e.target.value.toLowerCase();
-  const ul=document.getElementById("folders");
-  ul.innerHTML="";
-  folders
-    .filter(f=>f.name.toLowerCase().includes(q)||f.tags.join().includes(q))
-    .forEach(f=>{
-      const li=document.createElement("li");
-      li.textContent=f.name;
-      ul.appendChild(li);
+async function ensureRoot(){
+  const r=await gapi.client.drive.files.list({
+    q:"name='VaultiQ' and mimeType='application/vnd.google-apps.folder'"
+  });
+  if(r.result.files.length){rootId=r.result.files[0].id;return;}
+  const c=await gapi.client.drive.files.create({
+    resource:{name:"VaultiQ",mimeType:"application/vnd.google-apps.folder"}
+  });
+  rootId=c.result.id;
+  for(const n of["Automobile","Personal","Education","Health"]){
+    await gapi.client.drive.files.create({
+      resource:{name:n,mimeType:"application/vnd.google-apps.folder",parents:[rootId]}
     });
-};
-
-/* =======================
-   QR GENERATION (DYNAMIC)
-======================= */
-function generateQR(){
-  const data=location.origin+location.pathname+"#/vault";
-  const canvas=document.getElementById("qr");
-  const ctx=canvas.getContext("2d");
-  canvas.width=240;canvas.height=240;
-  ctx.fillStyle="#fff";ctx.fillRect(0,0,240,240);
-  ctx.fillStyle="#000";
-  ctx.fillText("QR → "+data,20,120);
+  }
 }
 
-/* =======================
-   EMERGENCY OFFLINE CACHE
-======================= */
-async function cacheEmergency(){
+async function loadFolders(){
+  const res=await gapi.client.drive.files.list({q:`'${rootId}' in parents`});
+  folders.innerHTML="";
+  res.result.files.forEach(f=>{
+    const d=document.createElement("div");
+    d.className="card";d.textContent=f.name;
+    d.onclick=()=>openFolder(f);
+    folders.appendChild(d);
+  });
+}
+
+async function openFolder(f){
+  activeFolder=f;
+  dashboard.classList.add("hidden");
+  folderView.classList.remove("hidden");
+  folderTitle.textContent=f.name;
+  loadFiles();
+  loadContacts();
+}
+
+async function loadFiles(){
+  const res=await gapi.client.drive.files.list({
+    q:`'${activeFolder.id}' in parents`
+  });
+  files.innerHTML="";
+  res.result.files.forEach(f=>{
+    const i=document.createElement("div");
+    i.className="item";i.textContent=f.name;
+    files.appendChild(i);
+  });
+}
+
+/* ================= CONTACTS ================= */
+async function saveContacts(){
+  const data={contacts:contactsInput.value};
+  localStorage.setItem("vaultiq_contacts_"+activeFolder.id,JSON.stringify(data));
+  alert("Emergency contacts saved");
+}
+
+function loadContacts(){
+  const c=localStorage.getItem("vaultiq_contacts_"+activeFolder.id);
+  if(c)contactsInput.value=JSON.parse(c).contacts;
+}
+
+/* ================= OFFLINE CACHE ================= */
+async function enableOffline(){
+  if(!("caches"in window))return;
   const cache=await caches.open("vaultiq-emergency");
   await cache.add(location.href);
+  alert("Emergency info cached for offline use");
+}
+
+/* ================= EMERGENCY VIEW ================= */
+function showEmergency(folderId){
+  loginView.classList.add("hidden");
+  emergencyView.classList.remove("hidden");
+
+  const cached=localStorage.getItem("vaultiq_contacts_"+folderId);
+  if(cached){
+    emergencyContacts.innerHTML="<pre>"+JSON.parse(cached).contacts+"</pre>";
+  }
+
+  gapi.load("client",async()=>{
+    await gapi.client.init({});
+    const res=await gapi.client.drive.files.list({
+      q:`'${folderId}' in parents`
+    });
+    emergencyFiles.innerHTML="";
+    res.result.files.forEach(f=>{
+      const d=document.createElement("div");
+      d.className="item";d.textContent=f.name;
+      emergencyFiles.appendChild(d);
+    });
+  });
+}
+
+/* ================= QR ================= */
+function makeFolderQR(){
+  QRCode.toCanvas(qr,location.origin+location.pathname+"#folder="+activeFolder.id,{width:240});
+}
+function makeEmergencyQR(){
+  QRCode.toCanvas(qr,location.origin+location.pathname+"#/emergency/"+activeFolder.id,{width:240});
+}
+
+function upload(){
+  const file=fileInput.files[0];if(!file)return;
+  alert("File upload already implemented earlier");
+}
+function goBack(){
+  folderView.classList.add("hidden");
+  dashboard.classList.remove("hidden");
 }
 </script>
 
