@@ -2,7 +2,7 @@
   "name": "VaultQR - Digital Safe",
   "short_name": "VaultQR",
   "description": "Store all your essential documents securely in Google Drive and access them via dynamic QR codes.",
-  "start_url": "./index.html",
+  "start_url": ".",
   "display": "standalone",
   "background_color": "#f2f2f7",
   "theme_color": "#007AFF",
